@@ -144,3 +144,4 @@ Generated automatically when the app starts (or when the Python script is run di
 | `jira_display_value` | Implementation hours formatted as Xd Yh Zm |
 | `included_status_rows` | Count of status rows used in calculation |
 | `notes` | Flags: Canceled rows, excluded On Hold, multiple Implementation stints |
+#commit test
