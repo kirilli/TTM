@@ -314,15 +314,20 @@ with main_right:
         return df
 
     _total = len(all_data[sel_metric])
-    df_metric = _apply_filters(all_data[sel_metric].copy())
+
+    # Scope-filtered base (quarter / tribe / squad) — drives the data-quality summary
+    df_scope = _apply_filters(all_data[sel_metric].copy())
+
+    # Table base — also responds to the In Scope (Yes/No) selector
+    df_metric = df_scope
     if sel_inscope == "Yes":
         df_metric = df_metric[df_metric["in_scope_15_sep"]]
     elif sel_inscope == "No":
         df_metric = df_metric[~df_metric["in_scope_15_sep"]]
 
-    # KPI base = always in-scope + calculable (filters: quarter/tribe/squad for scope)
-    df_kpi = _apply_filters(all_data[sel_metric].copy())
-    df_kpi = df_kpi[df_kpi["in_scope_15_sep"] & df_kpi["calculated_metric_days"].notna()]
+    # KPI + chart = the calculable rows of the SAME set shown in the table,
+    # so the histogram and the table can never diverge.
+    df_kpi = df_metric[df_metric["calculated_metric_days"].notna()]
 
     st.caption(f"cols: {'tribe' in all_data[sel_metric].columns} | total: {_total} → filtered: {len(df_metric)} | kpi: {len(df_kpi)}")
 
@@ -464,7 +469,7 @@ with main_left:
 # ─────────────────────────────────────────────────────────────────────────────
 # ── DATA QUALITY BAR
 # ─────────────────────────────────────────────────────────────────────────────
-dq = data_quality(df_kpi, sel_metric)
+dq = data_quality(df_scope, sel_metric)
 q_cls = {"Good": "dq-good", "Warning": "dq-warn", "Issue": "dq-issue"}.get(dq["quality"], "dq-good")
 
 dq_html = (
