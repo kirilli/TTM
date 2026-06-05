@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from calc import compute_all, data_quality, format_jira, format_jira_full
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-EXCEL_PATH = Path(__file__).parent / "QBR time in status.xlsx"
+EXCEL_PATH = Path(__file__).parent / "QBR time in status (NEW).xlsx"
 
 METRICS = [
     {"name": "Discovery Cycle Time",  "icon": "⏱",  "short": "DCT"},
@@ -198,19 +198,37 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Load data ─────────────────────────────────────────────────────────────────
-@st.cache_data(show_spinner="Loading Excel and calculating metrics…")
+@st.cache_resource(show_spinner="Loading Excel and calculating metrics…")
 def _load(path: str) -> dict:
     return compute_all(path)
 
 all_data = _load(str(EXCEL_PATH))
 
-# ── Derive filter options ─────────────────────────────────────────────────────
-_quarters_all = sorted(
-    set(q for df in all_data.values() for q in df[df["in_scope_15_sep"]]["quarter"].unique()),
-    reverse=True,
-)
-if "25Q4" not in _quarters_all:
+# ── Derive filter options directly from raw Excel (fast, no cache dependency) ─
+@st.cache_data(show_spinner=False)
+def _load_raw(path: str) -> pd.DataFrame:
+    return pd.read_excel(path)
+
+_raw = _load_raw(str(EXCEL_PATH))
+
+_fv_set = set()
+for _val in _raw["fix_versions"].dropna():
+    for _v in str(_val).split(","):
+        _s = _v.strip()
+        if _s and _s != "nan":
+            _fv_set.add(_s)
+_quarters_all = sorted(_fv_set, reverse=True)
+if not _quarters_all or "25Q4" not in _quarters_all:
     _quarters_all = ["25Q4"] + _quarters_all
+
+_tribes_all = sorted(set(
+    str(t).strip() for t in _raw["tribe"].dropna()
+    if str(t).strip() and str(t).strip() != "nan"
+))
+_squads_all = sorted(set(
+    str(s).strip() for s in _raw["squad"].dropna()
+    if str(s).strip() and str(s).strip() != "nan"
+))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ── APP HEADER
@@ -268,10 +286,10 @@ with main_right:
     f1, f2, f3, f4 = st.columns([1, 1, 1, 1.3])
     with f1:
         st.markdown("<div class='filter-lbl'>Squad</div>", unsafe_allow_html=True)
-        sel_squad = st.selectbox("Squad", ["All"], label_visibility="collapsed")
+        sel_squad = st.selectbox("Squad", ["All"] + _squads_all, label_visibility="collapsed")
     with f2:
         st.markdown("<div class='filter-lbl'>Tribe</div>", unsafe_allow_html=True)
-        sel_tribe = st.selectbox("Tribe", ["All"], label_visibility="collapsed")
+        sel_tribe = st.selectbox("Tribe", ["All"] + _tribes_all, label_visibility="collapsed")
     with f3:
         st.markdown("<div class='filter-lbl'>Quarter</div>", unsafe_allow_html=True)
         _q_idx = _quarters_all.index("25Q4") if "25Q4" in _quarters_all else 0
@@ -284,20 +302,29 @@ with main_right:
                                    label_visibility="collapsed")
 
     # ── Apply filters ─────────────────────────────────────────────────────────
-    df_metric = all_data[sel_metric].copy()
+    def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
+        if sel_quarter != "All" and "fix_versions" in df.columns:
+            df = df[df["fix_versions"].fillna("").apply(
+                lambda x: sel_quarter in [v.strip() for v in str(x).split(",")]
+            )]
+        if sel_tribe != "All" and "tribe" in df.columns:
+            df = df[df["tribe"].fillna("").str.strip() == sel_tribe]
+        if sel_squad != "All" and "squad" in df.columns:
+            df = df[df["squad"].fillna("").str.strip() == sel_squad]
+        return df
 
-    if sel_quarter != "All":
-        df_metric = df_metric[df_metric["quarter"] == sel_quarter]
+    _total = len(all_data[sel_metric])
+    df_metric = _apply_filters(all_data[sel_metric].copy())
     if sel_inscope == "Yes":
         df_metric = df_metric[df_metric["in_scope_15_sep"]]
     elif sel_inscope == "No":
         df_metric = df_metric[~df_metric["in_scope_15_sep"]]
 
-    # KPI base = always in-scope + calculable (filters: quarter only for scope)
-    df_q = all_data[sel_metric].copy()
-    if sel_quarter != "All":
-        df_q = df_q[df_q["quarter"] == sel_quarter]
-    df_kpi = df_q[df_q["in_scope_15_sep"] & df_q["calculated_metric_days"].notna()]
+    # KPI base = always in-scope + calculable (filters: quarter/tribe/squad for scope)
+    df_kpi = _apply_filters(all_data[sel_metric].copy())
+    df_kpi = df_kpi[df_kpi["in_scope_15_sep"] & df_kpi["calculated_metric_days"].notna()]
+
+    st.caption(f"cols: {'tribe' in all_data[sel_metric].columns} | total: {_total} → filtered: {len(df_metric)} | kpi: {len(df_kpi)}")
 
     vals = df_kpi["calculated_metric_days"]
     mean_v   = vals.mean()    if len(vals) > 0 else np.nan
@@ -437,7 +464,7 @@ with main_left:
 # ─────────────────────────────────────────────────────────────────────────────
 # ── DATA QUALITY BAR
 # ─────────────────────────────────────────────────────────────────────────────
-dq = data_quality(df_q, sel_metric)
+dq = data_quality(df_kpi, sel_metric)
 q_cls = {"Good": "dq-good", "Warning": "dq-warn", "Issue": "dq-issue"}.get(dq["quality"], "dq-good")
 
 dq_html = (
@@ -460,12 +487,10 @@ st.markdown(dq_html, unsafe_allow_html=True)
 with st.expander("🐛 Debug View — " + sel_metric, expanded=False):
     st.markdown("#### Metric debug table")
 
-    df_debug = all_data[sel_metric].copy()
-    if sel_quarter != "All":
-        df_debug = df_debug[df_debug["quarter"] == sel_quarter]
+    df_debug = _apply_filters(all_data[sel_metric].copy())
 
     debug_cols = [
-        "key", "in_scope_15_sep", "quarter",
+        "key", "tribe", "squad", "fix_versions", "in_scope_15_sep", "quarter",
         "first_implementation_timestamp", "metric_start_timestamp",
         "first_discovery_timestamp", "first_discovery_completed_timestamp",
         "first_delivery_committed_timestamp", "implementation_exit_timestamp",

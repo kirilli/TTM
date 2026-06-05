@@ -114,6 +114,9 @@ def _validation_status(can_calc, in_scope, delta_d, jira_nan):
 def _calc_one(key: str, grp: pd.DataFrame, metric: str) -> dict:
     grp = grp.sort_values("status_time").reset_index(drop=True)
     created       = grp["created"].iloc[0]
+    tribe         = str(grp["tribe"].iloc[0]).strip() if "tribe" in grp.columns else ""
+    squad         = str(grp["squad"].iloc[0]).strip() if "squad" in grp.columns else ""
+    fix_versions  = str(grp["fix_versions"].iloc[0]).strip() if "fix_versions" in grp.columns else ""
     first_impl    = _first(grp, {IMPL})
     in_scope      = bool(pd.notna(first_impl) and first_impl >= SCOPE_DATE)
     quarter       = _assign_quarter(first_impl)
@@ -213,6 +216,9 @@ def _calc_one(key: str, grp: pd.DataFrame, metric: str) -> dict:
         "included_status_rows":             int(len(grp[grp["sn"].isin(TTM_ACTIVE)])),
         "excluded_status_rows":             int(len(grp[grp["sn"].isin({"canceled", "rejected"})])),
         "notes":                            note,
+        "tribe":                            tribe,
+        "squad":                            squad,
+        "fix_versions":                     fix_versions,
     }
 
 
