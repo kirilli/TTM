@@ -62,11 +62,20 @@ def _calc_epic(key: str, grp: pd.DataFrame) -> dict:
     impl_rows  = grp[grp["sn"] == IMPL]
     oh_rows    = grp[grp["sn"] == ON_HOLD]
     comp_rows  = grp[grp["sn"].isin(COMPLETED_STATUSES)]
+    rel_rows   = grp[grp["sn"] == "released/completed"]
 
     first_disc    = disc_rows["status_time"].min() if not disc_rows.empty else pd.NaT
     del_start     = _delivery_start(grp)
     impl_exit_ts  = _impl_exit(grp)
     completed_date = comp_rows["status_time"].min() if not comp_rows.empty else pd.NaT
+
+    # TTM: from first exit out of New → last entry into Released/Completed
+    non_new       = grp[(grp["sn"] != "new") & (grp["sn"] != "canceled")]
+    ttm_start_ts  = non_new["status_time"].min() if not non_new.empty else pd.NaT
+    ttm_end_ts    = rel_rows["status_time"].max() if not rel_rows.empty else pd.NaT
+
+    # Started: first exit from New into any status except Canceled
+    started_ts    = non_new["status_time"].min() if not non_new.empty else pd.NaT
 
     # Discovery Cycle Time — sum of time in Discovery
     disc_ct_d = float(disc_rows["time_in_status"].sum()) / 24 if not disc_rows.empty else np.nan
@@ -96,14 +105,9 @@ def _calc_epic(key: str, grp: pd.DataFrame) -> dict:
     else:
         del_lt_d = np.nan
 
-    # Time to Market — active TTM statuses + On Hold from Discovery to impl exit
-    # Formula: Σ(exit Implementation − enter Discovery) + Σ(exit OnHold − enter OnHold)
-    ttm_act = grp[grp["sn"].isin(TTM_ACTIVE)]
-    if not disc_rows.empty and not impl_rows.empty:
-        ttm_d = (
-            float(ttm_act["time_in_status"].sum())
-            + _oh_between(oh_rows, first_disc, impl_exit_ts)
-        ) / 24
+    # Time to Market — calendar days from first exit of New to last Released/Completed entry
+    if pd.notna(ttm_start_ts) and pd.notna(ttm_end_ts):
+        ttm_d = (ttm_end_ts - ttm_start_ts).total_seconds() / 86400
     else:
         ttm_d = np.nan
 
@@ -114,6 +118,7 @@ def _calc_epic(key: str, grp: pd.DataFrame) -> dict:
         "key":            key,
         "created":        pd.Timestamp(created).normalize() if pd.notna(created) else pd.NaT,
         "completed_date": pd.Timestamp(completed_date).normalize() if pd.notna(completed_date) else pd.NaT,
+        "started_date":   pd.Timestamp(started_ts).normalize() if pd.notna(started_ts) else pd.NaT,
         "tribe":          tribe,
         "quarters":       quarters,
         "quarters_str":   ", ".join(quarters),

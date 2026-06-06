@@ -33,6 +33,10 @@ st.markdown("""
 
   div[data-baseweb="select"] > div { font-size: 0.8rem !important; min-height: 32px !important; }
   .stDateInput input { font-size: 0.8rem !important; }
+  .stMultiSelect label, .stDateInput label, .stSelectbox label {
+    font-size: 0.75rem !important; font-weight: 600 !important; color: #444 !important;
+    visibility: visible !important; display: block !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -66,7 +70,7 @@ all_quarters = sorted(set(q for qs in df_all["quarters"] for q in qs))
 # ── Filters ───────────────────────────────────────────────────────────────────
 st.markdown("<div class='dash-title'>Time Metrics Dashboard</div>", unsafe_allow_html=True)
 
-f1, f2, f3, f4, f5 = st.columns([3, 3, 2, 2, 3])
+f1, f2, f3, f4, f5, f6, f7 = st.columns([3, 3, 2, 2, 2, 2, 3])
 with f1:
     sel_tribes = st.multiselect("Tribe", all_tribes, placeholder="All tribes")
 with f2:
@@ -76,6 +80,10 @@ with f3:
 with f4:
     sel_completed_after = st.date_input("Completed After", value=None)
 with f5:
+    sel_completed_before = st.date_input("Completed Before", value=None)
+with f6:
+    sel_started_after = st.date_input("Started After", value=None)
+with f7:
     sel_metric = st.selectbox("Metric", list(METRICS.keys()))
 
 
@@ -87,13 +95,18 @@ if sel_quarters:
     sel_q_set = set(sel_quarters)
     df = df[df["quarters"].apply(lambda qs: bool(sel_q_set.intersection(qs)))]
 if sel_created_after is not None:
-    df = df[df["created"] > pd.Timestamp(sel_created_after)]
+    df = df[df["created"] >= pd.Timestamp(sel_created_after)]
 if sel_completed_after is not None:
-    df = df[df["completed_date"] > pd.Timestamp(sel_completed_after)]
+    df = df[df["completed_date"] >= pd.Timestamp(sel_completed_after)]
+if sel_completed_before is not None:
+    df = df[df["completed_date"] <= pd.Timestamp(sel_completed_before)]
+if sel_started_after is not None:
+    df = df[df["started_date"] >= pd.Timestamp(sel_started_after)]
 
 metric_col = METRICS[sel_metric]
 vals = df[metric_col].dropna()
 n = len(vals)
+n_total = len(df)
 
 mean_v   = float(vals.mean())         if n > 0 else float("nan")
 median_v = float(vals.median())       if n > 0 else float("nan")
@@ -119,8 +132,12 @@ st.markdown(f"""
     <div class='kpi-label'>P95 (days)</div>
   </div>
   <div class='kpi-card'>
+    <div class='kpi-value'>{n_total}</div>
+    <div class='kpi-label'>Epics (total)</div>
+  </div>
+  <div class='kpi-card'>
     <div class='kpi-value'>{n}</div>
-    <div class='kpi-label'>Epics</div>
+    <div class='kpi-label'>Epics (with {sel_metric})</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
